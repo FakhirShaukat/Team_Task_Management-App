@@ -16,9 +16,23 @@ const taskRoutes = require("./routes/taskRoutes");
 
 const app = express();
 
+app.set("trust proxy", 1);
+
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+].filter(Boolean);
+
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("Not allowed by CORS"));
+    },
     credentials: true,
   })
 );
@@ -40,12 +54,17 @@ app.use(
     saveUninitialized: false,
 
     cookie: {
-      secure: false,
+      secure: process.env.NODE_ENV === "production",
       httpOnly: true,
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       maxAge: 1000 * 60 * 60 * 24,
     },
   })
 );
+
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok" });
+});
 
 /* PASSPORT MIDDLEWARE */
 app.use(passport.initialize());

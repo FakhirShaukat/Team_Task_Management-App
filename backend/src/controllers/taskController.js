@@ -8,13 +8,20 @@ const createTask = async (req, res) => {
       team_id,
       assigned_to,
       due_date,
+      status = "pending",
     } = req.body;
+
+    if (!title || !team_id || !assigned_to) {
+      return res.status(400).json({
+        message: "Title, team, and assigned user are required",
+      });
+    }
 
     const newTask = await pool.query(
       `INSERT INTO tasks
-      (title, description, team_id, assigned_to, due_date)
+      (title, description, team_id, assigned_to, due_date, status)
       
-      VALUES ($1, $2, $3, $4, $5)
+      VALUES ($1, $2, $3, $4, $5, $6)
       
       RETURNING *`,
       [
@@ -23,6 +30,7 @@ const createTask = async (req, res) => {
         team_id,
         assigned_to,
         due_date,
+        status,
       ]
     );
 
@@ -111,6 +119,12 @@ const updateTask = async (req, res) => {
       ]
     );
 
+    if (updatedTask.rows.length === 0) {
+      return res.status(404).json({
+        message: "Task not found",
+      });
+    }
+
     res.status(200).json({
       message: "Task updated successfully",
       task: updatedTask.rows[0],
@@ -126,10 +140,16 @@ const deleteTask = async (req, res) => {
   try {
     const { id } = req.params;
 
-    await pool.query(
-      "DELETE FROM tasks WHERE id = $1",
+    const deletedTask = await pool.query(
+      "DELETE FROM tasks WHERE id = $1 RETURNING id",
       [id]
     );
+
+    if (deletedTask.rows.length === 0) {
+      return res.status(404).json({
+        message: "Task not found",
+      });
+    }
 
     res.status(200).json({
       message: "Task deleted successfully",
