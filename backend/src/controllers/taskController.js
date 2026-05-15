@@ -1,5 +1,17 @@
 const pool = require("../config/db");
 
+const accessibleTeamCondition = `
+  (
+    teams.created_by = $1
+    OR EXISTS (
+      SELECT 1
+      FROM team_members current_member
+      WHERE current_member.team_id = teams.id
+        AND current_member.user_id = $1
+    )
+  )
+`;
+
 const createTask = async (req, res) => {
   try {
     const {
@@ -14,6 +26,49 @@ const createTask = async (req, res) => {
     if (!title || !team_id || !assigned_to) {
       return res.status(400).json({
         message: "Title, team, and assigned user are required",
+      });
+    }
+
+    const team = await pool.query(
+      `SELECT id FROM teams
+       WHERE id = $1
+         AND (
+           created_by = $2
+           OR EXISTS (
+             SELECT 1
+             FROM team_members current_member
+             WHERE current_member.team_id = teams.id
+               AND current_member.user_id = $2
+           )
+         )`,
+      [team_id, req.user.id]
+    );
+
+    if (team.rows.length === 0) {
+      return res.status(404).json({
+        message: "Team not found or you do not have access to it",
+      });
+    }
+
+    const member = await pool.query(
+      `SELECT 1
+       FROM teams
+       WHERE id = $1
+         AND (
+           created_by = $2
+           OR EXISTS (
+             SELECT 1
+             FROM team_members
+             WHERE team_members.team_id = teams.id
+               AND team_members.user_id = $2
+           )
+         )`,
+      [team_id, assigned_to]
+    );
+
+    if (member.rows.length === 0) {
+      return res.status(400).json({
+        message: "Assigned user must be a member of the selected team",
       });
     }
 
@@ -54,22 +109,23 @@ const getTasks = async (req, res) => {
       FROM tasks
       LEFT JOIN users
       ON tasks.assigned_to = users.id
+      INNER JOIN teams
+      ON tasks.team_id = teams.id
+      WHERE ${accessibleTeamCondition}
     `;
 
-    const values = [];
+    const values = [req.user.id];
 
     if (team) {
       values.push(team);
 
-      query += ` WHERE tasks.team_id = $1`;
+      query += ` AND tasks.team_id = $${values.length}`;
     }
 
     if (assignee) {
       values.push(assignee);
 
-      query += values.length === 1
-        ? ` WHERE tasks.assigned_to = $1`
-        : ` AND tasks.assigned_to = $2`;
+      query += ` AND tasks.assigned_to = $${values.length}`;
     }
 
     query += ` ORDER BY tasks.id DESC`;
@@ -95,6 +151,52 @@ const updateTask = async (req, res) => {
       assigned_to,
       due_date,
     } = req.body;
+
+    const existingTask = await pool.query(
+      `SELECT tasks.team_id
+       FROM tasks
+       INNER JOIN teams
+       ON tasks.team_id = teams.id
+       WHERE tasks.id = $1
+         AND (
+           teams.created_by = $2
+           OR EXISTS (
+             SELECT 1
+             FROM team_members current_member
+             WHERE current_member.team_id = teams.id
+               AND current_member.user_id = $2
+           )
+         )`,
+      [id, req.user.id]
+    );
+
+    if (existingTask.rows.length === 0) {
+      return res.status(404).json({
+        message: "Task not found or you do not have access to it",
+      });
+    }
+
+    const member = await pool.query(
+      `SELECT 1
+       FROM teams
+       WHERE id = $1
+         AND (
+           created_by = $2
+           OR EXISTS (
+             SELECT 1
+             FROM team_members
+             WHERE team_members.team_id = teams.id
+               AND team_members.user_id = $2
+           )
+         )`,
+      [existingTask.rows[0].team_id, assigned_to]
+    );
+
+    if (member.rows.length === 0) {
+      return res.status(400).json({
+        message: "Assigned user must be a member of the selected team",
+      });
+    }
 
     const updatedTask = await pool.query(
       `UPDATE tasks
@@ -141,8 +243,21 @@ const deleteTask = async (req, res) => {
     const { id } = req.params;
 
     const deletedTask = await pool.query(
-      "DELETE FROM tasks WHERE id = $1 RETURNING id",
-      [id]
+      `DELETE FROM tasks
+       USING teams
+       WHERE tasks.id = $1
+         AND tasks.team_id = teams.id
+         AND (
+           teams.created_by = $2
+           OR EXISTS (
+             SELECT 1
+             FROM team_members current_member
+             WHERE current_member.team_id = teams.id
+               AND current_member.user_id = $2
+           )
+         )
+       RETURNING tasks.id`,
+      [id, req.user.id]
     );
 
     if (deletedTask.rows.length === 0) {

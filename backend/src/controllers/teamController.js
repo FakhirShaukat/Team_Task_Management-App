@@ -10,16 +10,40 @@ const createTeam = async (req, res) => {
       });
     }
 
-    const newTeam = await pool.query(
-      `INSERT INTO teams (name, created_by)
-       VALUES ($1, $2)
-       RETURNING *`,
-      [name.trim(), req.user.id]
-    );
+    const client = await pool.connect();
+
+    let team;
+
+    try {
+      await client.query("BEGIN");
+
+      const newTeam = await client.query(
+        `INSERT INTO teams (name, created_by)
+         VALUES ($1, $2)
+         RETURNING *`,
+        [name.trim(), req.user.id]
+      );
+
+      team = newTeam.rows[0];
+
+      await client.query(
+        `INSERT INTO team_members (team_id, user_id)
+         VALUES ($1, $2)
+         ON CONFLICT DO NOTHING`,
+        [team.id, req.user.id]
+      );
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
 
     res.status(201).json({
       message: "Team created successfully",
-      team: newTeam.rows[0],
+      team,
     });
   } catch (error) {
     res.status(500).json({
@@ -38,9 +62,17 @@ const getTeams = async (req, res) => {
       FROM teams
       LEFT JOIN team_members
       ON team_members.team_id = teams.id
+      WHERE teams.created_by = $1
+        OR EXISTS (
+          SELECT 1
+          FROM team_members current_member
+          WHERE current_member.team_id = teams.id
+            AND current_member.user_id = $1
+        )
       GROUP BY teams.id
       ORDER BY teams.id DESC
-      `
+      `,
+      [req.user.id]
     );
 
     res.status(200).json(teams.rows);
@@ -64,13 +96,13 @@ const addMember = async (req, res) => {
     }
 
     const team = await pool.query(
-      `SELECT * FROM teams WHERE id = $1`,
-      [id]
+      `SELECT * FROM teams WHERE id = $1 AND created_by = $2`,
+      [id, req.user.id]
     );
 
     if (team.rows.length === 0) {
       return res.status(404).json({
-        message: "Team not found",
+        message: "Team not found or you do not have permission to add members",
       });
     }
 
@@ -143,25 +175,17 @@ const deleteTeam = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // optional safety: check if team exists
     const team = await pool.query(
-      `SELECT * FROM teams WHERE id = $1`,
-      [id]
+      `SELECT * FROM teams WHERE id = $1 AND created_by = $2`,
+      [id, req.user.id]
     );
 
     if (team.rows.length === 0) {
       return res.status(404).json({
-        message: "Team not found",
+        message: "Team not found or you do not have permission to delete it",
       });
     }
 
-    // delete members first (IMPORTANT if no cascade)
-    await pool.query(
-      `DELETE FROM team_members WHERE team_id = $1`,
-      [id]
-    );
-
-    // then delete team
     await pool.query(
       `DELETE FROM teams WHERE id = $1`,
       [id]
