@@ -8,12 +8,15 @@ const {
   createTeam,
   getTeams,
   addMember,
+  getTeamMembers,
   deleteTeam,
 } = require("../controllers/teamController");
 
 router.post("/", isAuthenticated, createTeam);
 
 router.get("/", isAuthenticated, getTeams);
+
+router.get("/:id/members", isAuthenticated, getTeamMembers);
 
 router.post("/:id/members", isAuthenticated, addMember);
 

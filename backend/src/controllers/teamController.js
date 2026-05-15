@@ -1,4 +1,5 @@
 const pool = require("../config/db");
+const { ensureTeamMemberByName } = require("../utils/memberResolver");
 
 const createTeam = async (req, res) => {
   try {
@@ -109,27 +110,12 @@ const addMember = async (req, res) => {
     let memberId = user_id;
 
     if (!memberId) {
-      const user = await pool.query(
-        `SELECT id, name
-         FROM users
-         WHERE LOWER(name) = LOWER($1)
-         ORDER BY id ASC`,
-        [name.trim()]
-      );
+      const member = await ensureTeamMemberByName(pool, id, name);
 
-      if (user.rows.length === 0) {
-        return res.status(404).json({
-          message: "User not found",
-        });
-      }
-
-      if (user.rows.length > 1) {
-        return res.status(400).json({
-          message: "Multiple users found with that name. Please use a unique name.",
-        });
-      }
-
-      memberId = user.rows[0].id;
+      return res.status(200).json({
+        message: "Member added successfully",
+        member,
+      });
     }
 
     const user = await pool.query(
@@ -164,6 +150,52 @@ const addMember = async (req, res) => {
     res.status(200).json({
       message: "Member added successfully",
     });
+  } catch (error) {
+    res.status(500).json({
+      message: error.message,
+    });
+  }
+};
+
+const getTeamMembers = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const team = await pool.query(
+      `SELECT id FROM teams
+       WHERE id = $1
+         AND (
+           created_by = $2
+           OR EXISTS (
+             SELECT 1
+             FROM team_members current_member
+             WHERE current_member.team_id = teams.id
+               AND current_member.user_id = $2
+           )
+         )`,
+      [id, req.user.id]
+    );
+
+    if (team.rows.length === 0) {
+      return res.status(404).json({
+        message: "Team not found or you do not have access to it",
+      });
+    }
+
+    const members = await pool.query(
+      `SELECT DISTINCT users.id, users.name, users.email
+       FROM users
+       LEFT JOIN team_members
+       ON team_members.user_id = users.id
+       LEFT JOIN teams
+       ON teams.created_by = users.id
+       WHERE team_members.team_id = $1
+          OR teams.id = $1
+       ORDER BY users.name ASC`,
+      [id]
+    );
+
+    res.status(200).json(members.rows);
   } catch (error) {
     res.status(500).json({
       message: error.message,
@@ -207,5 +239,6 @@ module.exports = {
   createTeam,
   getTeams,
   addMember,
+  getTeamMembers,
   deleteTeam,
 };

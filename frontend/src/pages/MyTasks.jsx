@@ -23,6 +23,7 @@ const MyTasks = () => {
 
     const [tasks, setTasks] = useState([])
     const [teams, setTeams] = useState([])
+    const [members, setMembers] = useState([])
     const [loading, setLoading] = useState(false)
 
     const [filter, setFilter] = useState('All')
@@ -35,7 +36,7 @@ const MyTasks = () => {
         title: '',
         description: '',
         team_id: '',
-        assigned_to: '',
+        assigned_name: '',
         due_date: '',
         status: 'pending'
     })
@@ -43,6 +44,25 @@ const MyTasks = () => {
     useEffect(() => {
         fetchData()
     }, [])
+
+    useEffect(() => {
+        async function fetchMembers() {
+            if (!form.team_id) {
+                setMembers([])
+                return
+            }
+
+            try {
+                const res = await api.get(`/teams/${form.team_id}/members`)
+                setMembers(res.data)
+            } catch (error) {
+                console.log(error)
+                setMembers([])
+            }
+        }
+
+        fetchMembers()
+    }, [form.team_id])
 
     async function fetchData() {
         try {
@@ -82,7 +102,7 @@ const MyTasks = () => {
             title: '',
             description: '',
             team_id: '',
-            assigned_to: '',
+            assigned_name: '',
             due_date: '',
             status: 'pending'
         })
@@ -97,7 +117,9 @@ const MyTasks = () => {
             title: task.title || '',
             description: task.description || '',
             team_id: task.team_id || '',
-            assigned_to: task.assigned_to || '',
+            assigned_name: task.assignees?.length
+                ? task.assignees.map(member => member.name).join(', ')
+                : task.assigned_user || '',
             due_date: task.due_date ? task.due_date.slice(0, 10) : '',
             status: task.status || 'pending'
         })
@@ -111,7 +133,10 @@ const MyTasks = () => {
                 title: form.title,
                 description: form.description,
                 team_id: Number(form.team_id),
-                assigned_to: Number(form.assigned_to),
+                assigned_names: form.assigned_name
+                    .split(',')
+                    .map(name => name.trim())
+                    .filter(Boolean),
                 due_date: form.due_date,
                 status: form.status
             })
@@ -132,7 +157,10 @@ const MyTasks = () => {
                 title: form.title,
                 description: form.description,
                 status: form.status,
-                assigned_to: Number(form.assigned_to),
+                assigned_names: form.assigned_name
+                    .split(',')
+                    .map(name => name.trim())
+                    .filter(Boolean),
                 due_date: form.due_date
             })
 
@@ -242,6 +270,11 @@ return (
                             <p className="text-xs text-slate-400">
                                 {t.description}
                             </p>
+                            {t.assigned_user && (
+                                <p className="text-xs text-slate-500 mt-1">
+                                    Assigned: {t.assigned_user}
+                                </p>
+                            )}
                         </div>
 
                         {/* TEAM */}
@@ -310,7 +343,7 @@ return (
 
                         <select
                             value={form.team_id}
-                            onChange={e => setForm({ ...form, team_id: e.target.value })}
+                            onChange={e => setForm({ ...form, team_id: e.target.value, assigned_name: '' })}
                             className='w-full border p-2 mb-2 rounded text-sm'
                         >
                             <option value="">Select Team</option>
@@ -322,11 +355,20 @@ return (
                         </select>
 
                         <input
-                            placeholder='Assign User ID'
-                            value={form.assigned_to}
-                            onChange={e => setForm({ ...form, assigned_to: e.target.value })}
+                            placeholder='Assign member names'
+                            value={form.assigned_name}
+                            onChange={e => setForm({ ...form, assigned_name: e.target.value })}
+                            list='team-members'
                             className='w-full border p-2 mb-2 rounded text-sm'
                         />
+                        <p className='text-[11px] text-slate-400 mb-2'>
+                            Separate multiple names with commas.
+                        </p>
+                        <datalist id='team-members'>
+                            {members.map(member => (
+                                <option key={member.id} value={member.name} />
+                            ))}
+                        </datalist>
 
                         <select
                             value={form.status}

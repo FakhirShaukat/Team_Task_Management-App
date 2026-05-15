@@ -31,7 +31,7 @@ const RegisterUser = () => {
 
             alert(response.data.message);
 
-            navigate('/');
+            navigate('/dashboard');
 
         } catch (error) {
 

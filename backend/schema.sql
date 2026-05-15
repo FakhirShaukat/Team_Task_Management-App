@@ -33,6 +33,13 @@ CREATE TABLE IF NOT EXISTS tasks (
   CONSTRAINT tasks_status_check CHECK (status IN ('todo', 'pending', 'in-progress', 'completed'))
 );
 
+CREATE TABLE IF NOT EXISTS task_assignees (
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (task_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS user_sessions (
   sid VARCHAR NOT NULL PRIMARY KEY,
   sess JSON NOT NULL,
@@ -42,3 +49,4 @@ CREATE TABLE IF NOT EXISTS user_sessions (
 CREATE INDEX IF NOT EXISTS idx_user_sessions_expire ON user_sessions(expire);
 CREATE INDEX IF NOT EXISTS idx_tasks_team_id ON tasks(team_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to ON tasks(assigned_to);
+CREATE INDEX IF NOT EXISTS idx_task_assignees_user_id ON task_assignees(user_id);
